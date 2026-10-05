@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Birthday Flower Bouquet</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&display=swap">
+<style>
+/* Layout: one centred column. A flat paper-wrapped bouquet, the greeting under it, nothing else.
+   Flowers wait inside the cone; a tap makes them spring out. Balloons rise behind, bubbles float in front. */
+:root{
+  --bg:#f5f3ef; --fg:#26302c; --muted:#7a817d; --focus:#2fa6a6;
+  --f-display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --bg:#1a1d1c; --fg:#f2eee6; --muted:#a3aaa6; --focus:#5fd0d0; color-scheme:dark }
+}
+:root[data-theme="dark"]{ --bg:#1a1d1c; --fg:#f2eee6; --muted:#a3aaa6; --focus:#5fd0d0; color-scheme:dark }
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-display);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+
+.stage{position:relative;overflow:hidden;min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(8px,2svh,20px);
+  padding-block:32px;padding-inline:16px}
+canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+#back{z-index:0} #front{z-index:3}
+
+.bouquet{position:relative;z-index:1;display:block;border:0;padding:0;margin:0;background:none;cursor:pointer;border-radius:24px;
+  width:min(78vw,calc(62svh * .7),330px)}
+.bouquet svg{display:block;width:100%;height:auto;overflow:visible}
+.bouquet:focus-visible{outline:2px solid var(--focus);outline-offset:8px}
+.is-open .bouquet{cursor:default}
+
+/* closed: flowers tucked into the cone; open: they spring out */
+.fl{transform-box:fill-box;transform-origin:50% 100%;transform:translate(var(--dx),var(--dy)) scale(.32);
+  transition:transform .8s cubic-bezier(.3,1.6,.5,1) calc(var(--i) * .07s)}
+.lf{transform-box:fill-box;transform-origin:50% 100%;transform:rotate(var(--r0)) scaleY(.55);
+  transition:transform .7s cubic-bezier(.3,1.5,.5,1) calc(var(--i) * .03s)}
+.is-open .fl{transform:none}
+.is-open .lf{transform:none}
+.is-open .sway{animation:sway 5s ease-in-out 1.6s infinite}
+@keyframes sway{0%,100%{transform:rotate(0)}50%{transform:rotate(1.2deg)}}
+.sway{transform-box:fill-box;transform-origin:50% 100%}
+.closed-bob{transform-box:fill-box;transform-origin:50% 100%;animation:bob 2.8s ease-in-out infinite}
+.is-open .closed-bob{animation:none}
+@keyframes bob{0%,100%{transform:rotate(0)}50%{transform:rotate(-2deg) translateY(-3px)}}
+
+h1{position:relative;z-index:2;margin:0;font-weight:700;font-size:clamp(34px,9vw,60px);letter-spacing:-.03em;line-height:1;text-align:center;
+  opacity:0;transform:translateY(14px);transition:opacity .6s ease .9s,transform .8s cubic-bezier(.3,1.5,.5,1) .9s}
+.is-open h1{opacity:1;transform:none}
+.foot{position:relative;z-index:4;display:grid;place-items:center;min-height:40px}
+.foot > *{grid-area:1/1}
+.hint{margin:0;font-size:15px;font-weight:500;color:var(--muted);letter-spacing:.02em;transition:opacity .3s}
+.replay{border:0;background:none;padding:8px 14px;border-radius:999px;font-size:15px;font-weight:500;color:var(--muted);cursor:pointer;
+  text-decoration:underline;text-underline-offset:4px;opacity:0;visibility:hidden;transition:opacity .4s 1.8s,visibility .4s 1.8s}
+.replay:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.is-open .hint{opacity:0;visibility:hidden;pointer-events:none}
+.replay{position:relative;z-index:1}
+.is-open .replay{opacity:1;visibility:visible}
+.is-reset *{transition:none!important;animation:none!important}
+
+@media (prefers-reduced-motion: reduce){
+  .fl,.lf,h1,.replay{transition-duration:.01s;transition-delay:0s}
+  .closed-bob,.is-open .sway{animation:none}
+}
+</style>
+
+<main class="stage" id="stage">
+  <canvas id="back" aria-hidden="true"></canvas>
+  <canvas id="front" aria-hidden="true"></canvas>
+
+  <button class="bouquet" id="bouquet" type="button" data-open aria-expanded="false" aria-label="Open the bouquet">
+    <svg viewBox="0 0 300 430" aria-hidden="true"><g class="closed-bob"><g class="sway" id="art"></g></g></svg>
+  </button>
+
+  <h1>Happy Birthday!</h1>
+
+  <div class="foot">
+    <p class="hint">tap the bouquet</p>
+    <button class="replay" id="replay" type="button">again</button>
+  </div>
+</main>
+
+<script>
+(function(){
+'use strict';
+const $ = s => document.querySelector(s);
+const stage = $('#stage'), btn = $('#bouquet');
+const reduceMQ = matchMedia('(prefers-reduced-motion: reduce)');
+
+/* ---------- the bouquet: flat shapes, one palette ---------- */
+const P = { leaf:'#1f6b5a', leaf2:'#2b8068', pink:'#e3589a', pink2:'#ec78b0', orange:'#ea6a46', orange2:'#d4502f',
+  yellow:'#f6c12b', yolk:'#e8862e', teal:'#4fc1c3', teal2:'#3aa8ab', kraft:'#e9a878', kraft2:'#dc935c', band:'#2fa6a6' };
+const MOUTH = [170, 262];
+const ring = (n, fn) => { let o = ''; for (let k = 0; k < n; k++) o += fn(k * 360 / n, k); return o; };
+
+const daisy = (r, col, ctr) => ring(10, a => `<ellipse cx="0" cy="${-r * .58}" rx="${r * .2}" ry="${r * .44}" fill="${col}" transform="rotate(${a})"/>`)
+  + `<circle r="${r * .26}" fill="${ctr}"/>`;
+const tulip = (r, c1, c2) => `<path d="M0 ${r*.7} C${-r*1.1} ${r*.5} ${-r*1.05} ${-r*.5} ${-r*.55} ${-r*.95} C${-r*.4} ${-r*.3} ${-r*.15} ${-r*.1} 0 ${-r*.1} C${r*.15} ${-r*.1} ${r*.4} ${-r*.3} ${r*.55} ${-r*.95} C${r*1.05} ${-r*.5} ${r*1.1} ${r*.5} 0 ${r*.7}Z" fill="${c1}"/>`
+  + `<path d="M0 ${r*.7} C${-r*.45} ${r*.2} ${-r*.35} ${-r*.6} 0 ${-r*1.05} C${r*.35} ${-r*.6} ${r*.45} ${r*.2} 0 ${r*.7}Z" fill="${c2}"/>`;
+const leaf = (len, w, col) => `<path d="M0 0 C${w} ${-len*.35} ${w*.6} ${-len*.8} 0 ${-len} C${-w*.6} ${-len*.8} ${-w} ${-len*.35} 0 0Z" fill="${col}"/>`;
+
+// leaves fanned behind the flowers: [x, y, length, width, angle, colour]
+const LEAVES = [
+  [150, 262, 190, 26, -38, P.leaf], [160, 262, 210, 24, -14, P.leaf2], [178, 262, 215, 24, 8, P.leaf],
+  [190, 262, 190, 26, 30, P.leaf2], [140, 264, 150, 26, -62, P.leaf2], [200, 264, 150, 26, 58, P.leaf],
+  [168, 262, 160, 22, -28, P.leaf], [176, 262, 160, 22, 20, P.leaf2],
+];
+// flowers: [kind, x, y, size, colour, second colour]
+const FLOWERS = [
+  ['tulip', 150,  92, 44, P.orange, P.orange2],
+  ['tulip', 262, 172, 36, P.teal, P.teal2],
+  ['daisy',  92, 128, 46, P.pink, P.yellow],
+  ['daisy', 226, 112, 44, P.yellow, P.yolk],
+  ['tulip',  82, 200, 38, P.orange, P.orange2],
+  ['daisy', 150, 172, 44, P.pink2, P.yellow],
+  ['daisy', 214, 208, 44, P.yellow, P.yolk],
+];
+
+
+function build(){
+  let o = '';
+  LEAVES.forEach(([x, y, len, w, a, col], i) => {
+    o += `<g transform="translate(${x} ${y}) rotate(${a})"><g class="lf" style="--i:${i};--r0:${-a * .6}deg">${leaf(len, w, col)}</g></g>`;
+  });
+  FLOWERS.forEach(([k, x, y, s, c1, c2], i) => {
+    const dx = (MOUTH[0] - x) * .85, dy = (MOUTH[1] - y) * .9;
+    o += `<g transform="translate(${x} ${y})"><g class="fl" style="--i:${i};--dx:${dx}px;--dy:${dy}px">${k === 'daisy' ? daisy(s, c1, c2) : tulip(s, c1, c2)}</g></g>`;
+  });
+  // paper cone on top
+  o += `<path d="M92 256 L172 250 L166 392 L148 392Z" fill="${P.kraft}"/>`
+    +  `<path d="M172 250 L250 258 L184 392 L166 392Z" fill="${P.kraft2}"/>`
+    +  `<path d="M148 391 L184 391 L192 424 L140 424Z" fill="${P.kraft}"/>`
+    +  `<rect x="143" y="384" width="45" height="8" rx="4" fill="${P.band}"/>`;
+  $('#art').innerHTML = o;
+}
+build();
+
+/* ---------- a few flat balloons and soft bubbles ---------- */
+const TAU = Math.PI * 2, rand = (a, b) => a + Math.random() * (b - a), pick = a => a[(Math.random() * a.length) | 0];
+const BCOL = [P.pink, P.orange, P.yellow, P.teal, P.leaf2];
+const cb = $('#back'), cf = $('#front'), xb = cb.getContext('2d'), xf = cf.getContext('2d');
+let W = 1, H = 1, running = false, raf = 0, last = 0, opened = false, clock = 0, amb = 0;
+const balloons = [], bubbles = [], timers = [];
+
+function resize(){
+  const r = stage.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  W = Math.max(1, Math.round(r.width)); H = Math.max(1, Math.round(r.height));
+  for (const [c, x] of [[cb, xb], [cf, xf]]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); x.setTransform(dpr, 0, 0, dpr, 0, 0); }
+  if (!running) draw();
+}
+let rz = 0; addEventListener('resize', () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(resize); });
+function origin(){ const b = btn.getBoundingClientRect(), s = stage.getBoundingClientRect(); return { x: b.left - s.left + b.width * .55, y: b.top - s.top + b.height * .55, w: b.width }; }
+const balloon = (x, y, vy) => balloons.push({ x, y, vy, r: rand(15, 24), c: pick(BCOL), ph: rand(0, TAU) });
+const bubble = (x, y, vx, vy) => bubbles.push({ x, y, vx, vy, r: rand(5, 16), ph: rand(0, TAU), life: rand(5, 10), t: 0, pop: 0 });
+const at = (s, fn) => timers.push({ at: clock + s, fn });
+
+function update(dt){
+  for (let i = timers.length - 1; i >= 0; i--) if (clock >= timers[i].at) timers.splice(i, 1)[0].fn();
+  for (let i = balloons.length - 1; i >= 0; i--) { const b = balloons[i];
+    b.ph += dt * 1.3; b.x += Math.sin(b.ph) * 14 * dt; b.y += b.vy * dt; b.vy += (-55 - b.vy) * Math.min(1, dt * .8);
+    if (b.y < -b.r * 5) balloons.splice(i, 1); }
+  for (let i = bubbles.length - 1; i >= 0; i--) { const u = bubbles[i];
+    u.t += dt; u.ph += dt * 2; u.vx *= 1 - Math.min(1, dt * .8); u.vy += (-30 - u.vy) * Math.min(1, dt);
+    u.x += (u.vx + Math.sin(u.ph) * 10) * dt; u.y += u.vy * dt;
+    if (u.pop || u.t > u.life) u.pop += dt * 5;
+    if (u.pop >= 1 || u.y < -u.r * 2) bubbles.splice(i, 1); }
+  if (opened) { amb += dt;
+    if (amb > 1.6) { amb = 0;
+      if (balloons.length < 7) balloon(rand(W * .05, W * .95), H + 70, -rand(40, 70));
+      if (bubbles.length < 14) { const o = origin(); bubble(o.x + rand(-o.w * .5, o.w * .5), H + 10, rand(-10, 10), -rand(30, 60)); } } }
+}
+function draw(){
+  xb.clearRect(0, 0, W, H); xf.clearRect(0, 0, W, H);
+  for (const b of balloons) { const r = b.r;
+    xb.save(); xb.translate(b.x, b.y); xb.rotate(Math.sin(b.ph) * .08);
+    xb.beginPath(); xb.moveTo(0, r * 1.25); xb.quadraticCurveTo(Math.sin(b.ph) * r * .5, r * 2.3, 0, r * 3.4); xb.strokeStyle = 'rgba(120,120,120,.5)'; xb.lineWidth = 1; xb.stroke();
+    xb.fillStyle = b.c; xb.beginPath(); xb.ellipse(0, 0, r, r * 1.2, 0, 0, TAU); xb.fill();
+    xb.beginPath(); xb.moveTo(-r * .18, r * 1.18); xb.lineTo(r * .18, r * 1.18); xb.lineTo(0, r * 1.32); xb.fill();
+    xb.restore(); }
+  for (const u of bubbles) { const r = u.r * (1 + u.pop * .4);
+    xf.save(); xf.globalAlpha = .7 * (1 - u.pop); xf.translate(u.x, u.y);
+    xf.beginPath(); xf.arc(0, 0, r, 0, TAU); xf.fillStyle = 'rgba(79,193,195,.10)'; xf.fill(); xf.strokeStyle = 'rgba(79,193,195,.7)'; xf.lineWidth = 1.2; xf.stroke();
+    xf.beginPath(); xf.arc(-r * .35, -r * .35, r * .18, 0, TAU); xf.fillStyle = 'rgba(255,255,255,.85)'; xf.fill();
+    xf.restore(); }
+}
+function frame(ts){
+  if (!running) return;
+  const dt = Math.min(.05, Math.max(0, (ts - last) / 1000)); last = ts; clock += dt;
+  update(dt); draw();
+  if (opened || balloons.length || bubbles.length || timers.length) raf = requestAnimationFrame(frame); else { running = false; raf = 0; }
+}
+function start(){ if (running) return; running = true; last = performance.now(); raf = requestAnimationFrame(frame); }
+function stop(){ running = false; cancelAnimationFrame(raf); raf = 0; }
+document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); else if (opened && !reduceMQ.matches) start(); });
+
+stage.addEventListener('pointerdown', e => {
+  if (!opened || reduceMQ.matches || e.target.closest('button')) return;
+  const s = stage.getBoundingClientRect(), px = e.clientX - s.left, py = e.clientY - s.top;
+  let hit = false;
+  for (const u of bubbles) if (Math.hypot(u.x - px, u.y - py) < u.r + 12) { u.pop = .01; hit = true; }
+  if (!hit) for (let i = 0; i < 4; i++) bubble(px, py, rand(-60, 60), -rand(40, 120));
+  start();
+});
+
+/* ---------- open / again ---------- */
+function open(){
+  if (opened) return;
+  opened = true; clock = 0; amb = 0; resize();
+  balloons.length = bubbles.length = timers.length = 0;
+  stage.classList.add('is-open'); btn.setAttribute('aria-expanded', 'true');
+  if (reduceMQ.matches) { for (let i = 0; i < 5; i++) balloon(W * (.1 + .8 * i / 4), rand(H * .1, H * .35), 0); draw(); return; }
+  for (let i = 0; i < 9; i++) at(.25 + i * .09, () => { const o = origin(); balloon(o.x + rand(-o.w * .45, o.w * .45), o.y, -rand(220, 360)); });
+  for (let i = 0; i < 16; i++) at(.5 + i * .06, () => { const o = origin(); bubble(o.x + rand(-20, 20), o.y - o.w * .3, rand(-160, 160), -rand(60, 180)); });
+  start();
+}
+function again(){
+  opened = false; stop(); balloons.length = bubbles.length = timers.length = 0; draw();
+  stage.classList.add('is-reset'); stage.classList.remove('is-open'); btn.setAttribute('aria-expanded', 'false');
+  requestAnimationFrame(() => requestAnimationFrame(() => { stage.classList.remove('is-reset'); btn.focus({ preventScroll: true }); setTimeout(open, 400); }));
+}
+btn.addEventListener('click', open);
+$('#replay').addEventListener('click', again);
+resize();
+})();
+</script>
+
+</body>
+</html>
